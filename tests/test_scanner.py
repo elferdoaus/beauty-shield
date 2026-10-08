@@ -1,17 +1,36 @@
 
-from unittest.mock import Mock, patch
+import pytest
+import urllib3
+
+from unittest.mock import MagicMock, patch
 
 from app.scanner import scan_url
 
 
-def test_missing_security_headers():
-    response = Mock()
-    response.status_code = 200
-    response.url = "https://example.com"
-    response.headers = {}
-    response.cookies = []
+def make_response(status=200, headers=None, cookies=None):
+    if headers is None:
+        headers = {}
 
-    with patch("app.scanner.requests.get", return_value=response):
+    response_headers = urllib3.HTTPHeaderDict()
+
+    for name, value in headers.items():
+        response_headers.add(name, value)
+
+    if cookies is not None:
+        for cookie in cookies:
+            response_headers.add("Set-Cookie", cookie)
+
+    response = MagicMock()
+    response.status = status
+    response.headers = response_headers
+
+    return response
+
+
+def test_missing_security_headers():
+    response = make_response()
+
+    with patch("app.scanner.safe_get", return_value=response):
         issues = scan_url("https://example.com")
 
     headers = [
@@ -27,14 +46,7 @@ def test_missing_security_headers():
 
 
 def test_http_detection():
-    response = Mock()
-    response.status_code = 200
-    response.url = "http://example.com"
-    response.headers = {}
-    response.cookies = []
-
-    with patch("app.scanner.requests.get", return_value=response):
-        issues = scan_url("http://example.com")
+    issues = scan_url("http://example.com")
 
     assert any(
         issue["type"] == "HTTPS"
@@ -43,19 +55,13 @@ def test_http_detection():
 
 
 def test_cookie_without_secure():
-    response = Mock()
-    response.status_code = 200
-    response.url = "https://example.com"
-    response.headers = {}
+    response = make_response(
+        cookies=[
+            "session=abc; HttpOnly; SameSite=Lax"
+        ]
+    )
 
-    cookie = Mock()
-    cookie.name = "session"
-    cookie.secure = False
-    cookie.has_nonstandard_attr.return_value = True
-
-    response.cookies = [cookie]
-
-    with patch("app.scanner.requests.get", return_value=response):
+    with patch("app.scanner.safe_get", return_value=response):
         issues = scan_url("https://example.com")
 
     assert any(
@@ -66,24 +72,13 @@ def test_cookie_without_secure():
 
 
 def test_cookie_without_httponly():
-    response = Mock()
-    response.status_code = 200
-    response.url = "https://example.com"
-    response.headers = {}
+    response = make_response(
+        cookies=[
+            "session=abc; Secure; SameSite=Lax"
+        ]
+    )
 
-    cookie = Mock()
-    cookie.name = "session"
-    cookie.secure = True
-
-    def check_attribute(name):
-        if name == "HttpOnly":
-            return False
-        return True
-
-    cookie.has_nonstandard_attr.side_effect = check_attribute
-    response.cookies = [cookie]
-
-    with patch("app.scanner.requests.get", return_value=response):
+    with patch("app.scanner.safe_get", return_value=response):
         issues = scan_url("https://example.com")
 
     assert any(
@@ -94,24 +89,13 @@ def test_cookie_without_httponly():
 
 
 def test_cookie_without_samesite():
-    response = Mock()
-    response.status_code = 200
-    response.url = "https://example.com"
-    response.headers = {}
+    response = make_response(
+        cookies=[
+            "session=abc; Secure; HttpOnly"
+        ]
+    )
 
-    cookie = Mock()
-    cookie.name = "session"
-    cookie.secure = True
-
-    def check_attribute(name):
-        if name == "SameSite":
-            return False
-        return True
-
-    cookie.has_nonstandard_attr.side_effect = check_attribute
-    response.cookies = [cookie]
-
-    with patch("app.scanner.requests.get", return_value=response):
+    with patch("app.scanner.safe_get", return_value=response):
         issues = scan_url("https://example.com")
 
     assert any(
@@ -122,15 +106,17 @@ def test_cookie_without_samesite():
 
 
 def test_redirect_not_followed():
-    response = Mock()
-    response.status_code = 302
-    response.url = "https://example.com"
-    response.headers = {
-        "Location": "http://127.0.0.1"
-    }
-    response.cookies = []
+    response = make_response(
+        status=302,
+        headers={
+            "Location": "http://127.0.0.1"
+        }
+    )
 
-    with patch("app.scanner.requests.get", return_value=response) as mock_get:
+    with patch(
+        "app.scanner.safe_get",
+        return_value=response
+    ) as mock_get:
         issues = scan_url("https://example.com")
 
     assert any(
@@ -138,4 +124,64 @@ def test_redirect_not_followed():
         for issue in issues
     )
 
-    assert mock_get.call_args.kwargs["allow_redirects"] is False
+    mock_get.assert_called_once_with(
+        "https://example.com"
+    )
+
+
+def test_multiple_cookies():
+    response = make_response(
+        cookies=[
+            "session=abc; Secure; HttpOnly; SameSite=Lax",
+            "preferences=dark"
+        ]
+    )
+
+    with patch("app.scanner.safe_get", return_value=response):
+        issues = scan_url("https://example.com")
+
+    insecure_cookies = [
+        issue
+        for issue in issues
+        if issue["type"] == "INSECURE_COOKIE"
+    ]
+
+    assert len(insecure_cookies) == 3
+
+    assert all(
+        "preferences" in issue["message"]
+        for issue in insecure_cookies
+    )
+
+
+def test_connection_error():
+    with patch(
+        "app.scanner.safe_get",
+        side_effect=urllib3.exceptions.HTTPError(
+            "Connection failed"
+        )
+    ):
+        issues = scan_url("https://example.com")
+
+    assert any(
+        issue["type"] == "CONNECTION_ERROR"
+        for issue in issues
+    )
+
+
+def test_secure_headers():
+    response = make_response(
+        headers={
+            "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
+            "X-Content-Type-Options": "nosniff",
+            "Strict-Transport-Security": "max-age=31536000"
+        }
+    )
+
+    with patch("app.scanner.safe_get", return_value=response):
+        issues = scan_url("https://example.com")
+
+    assert not any(
+        issue["type"] == "MISSING_HEADER"
+        for issue in issues
+    )

@@ -1,11 +1,6 @@
 
 import requests
-import urllib3
-
-from http.cookies import SimpleCookie
 from urllib.parse import urlparse
-
-from app.safe_connection import safe_get
 
 
 def scan_url(url):
@@ -33,13 +28,14 @@ def scan_url(url):
             "recommendation": "Use HTTPS to encrypt communications."
         })
 
-        return issues
-
     try:
-        response = safe_get(url)
+        response = requests.get(
+            url,
+            timeout=5,
+            allow_redirects=False
+        )
 
-        status_code = response.status
-        headers = response.headers
+        status_code = response.status_code
 
         if isinstance(status_code, int):
             if 300 <= status_code < 400:
@@ -72,16 +68,18 @@ def scan_url(url):
 
         for header in security_headers:
             if header == "Strict-Transport-Security":
-                if parsed.scheme != "https":
+                if not response.url.startswith("https://"):
                     continue
 
             if header == "X-Frame-Options":
-                csp = headers.get("Content-Security-Policy", "")
+                csp = response.headers.get(
+                    "Content-Security-Policy", ""
+                )
 
                 if "frame-ancestors" in csp.lower():
                     continue
 
-            if header not in headers:
+            if header not in response.headers:
                 issues.append({
                     "type": "MISSING_HEADER",
                     "header": header,
@@ -90,47 +88,32 @@ def scan_url(url):
                     "recommendation": security_headers[header]["recommendation"]
                 })
 
-        cookie_headers = headers.getlist("Set-Cookie")
+        for cookie in response.cookies:
+            if not cookie.secure:
+                issues.append({
+                    "type": "INSECURE_COOKIE",
+                    "severity": "HIGH",
+                    "message": "Cookie without Secure: " + cookie.name,
+                    "recommendation": "Enable the Secure attribute."
+                })
 
-        for cookie_header in cookie_headers:
-            cookie = SimpleCookie()
+            if not cookie.has_nonstandard_attr("HttpOnly"):
+                issues.append({
+                    "type": "INSECURE_COOKIE",
+                    "severity": "MEDIUM",
+                    "message": "Cookie without HttpOnly: " + cookie.name,
+                    "recommendation": "Enable HttpOnly when JavaScript access is unnecessary."
+                })
 
-            try:
-                cookie.load(cookie_header)
-            except Exception:
-                continue
+            if not cookie.has_nonstandard_attr("SameSite"):
+                issues.append({
+                    "type": "INSECURE_COOKIE",
+                    "severity": "MEDIUM",
+                    "message": "Cookie without SameSite: " + cookie.name,
+                    "recommendation": "Configure SameSite=Lax or Strict where appropriate."
+                })
 
-            for name, morsel in cookie.items():
-                if not morsel["secure"]:
-                    issues.append({
-                        "type": "INSECURE_COOKIE",
-                        "severity": "HIGH",
-                        "message": "Cookie without Secure: " + name,
-                        "recommendation": "Enable the Secure attribute."
-                    })
-
-                if not morsel["httponly"]:
-                    issues.append({
-                        "type": "INSECURE_COOKIE",
-                        "severity": "MEDIUM",
-                        "message": "Cookie without HttpOnly: " + name,
-                        "recommendation": "Enable HttpOnly when JavaScript access is unnecessary."
-                    })
-
-                if not morsel["samesite"]:
-                    issues.append({
-                        "type": "INSECURE_COOKIE",
-                        "severity": "MEDIUM",
-                        "message": "Cookie without SameSite: " + name,
-                        "recommendation": "Configure SameSite=Lax or Strict where appropriate."
-                    })
-
-    except (
-        requests.RequestException,
-        urllib3.exceptions.HTTPError,
-        OSError,
-        ValueError
-    ):
+    except requests.RequestException:
         issues.append({
             "type": "CONNECTION_ERROR",
             "severity": "HIGH",
