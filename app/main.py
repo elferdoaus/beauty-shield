@@ -1,19 +1,26 @@
-from fastapi import FastAPI
+
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
+
 from app.scanner import scan_url
 from app.risk import calculate_risk
+from app.security import validate_url
 
 
 app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5500", "http://localhost:5500"],
+    allow_origins=[
+        "http://127.0.0.1:5500",
+        "http://localhost:5500"
+    ],
     allow_credentials=False,
     allow_methods=["POST"],
     allow_headers=["Content-Type"],
 )
+
 
 class ScanRequest(BaseModel):
     url: str
@@ -29,9 +36,14 @@ def health():
 
 @app.post("/scan")
 def scan(request: ScanRequest):
-    issues = scan_url(request.url)
+    if not validate_url(request.url):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid or restricted URL"
+        )
 
-    score, level = calculate_risk(issues)                                    
+    issues = scan_url(request.url)
+    score, level = calculate_risk(issues)
 
     return {
         "target": request.url,
