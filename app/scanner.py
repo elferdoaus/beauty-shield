@@ -32,8 +32,20 @@ def scan_url(url):
         response = requests.get(
             url,
             timeout=5,
-            allow_redirects=True
+            allow_redirects=False
         )
+
+        status_code = response.status_code
+
+        if isinstance(status_code, int):
+            if 300 <= status_code < 400:
+                issues.append({
+                    "type": "REDIRECT",
+                    "severity": "INFO",
+                    "message": "The website returns a redirect",
+                    "recommendation": "Check the redirect destination before scanning it."
+                })
+                return issues
 
         security_headers = {
             "Content-Security-Policy": {
@@ -63,6 +75,7 @@ def scan_url(url):
                 csp = response.headers.get(
                     "Content-Security-Policy", ""
                 )
+
                 if "frame-ancestors" in csp.lower():
                     continue
 
