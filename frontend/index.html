@@ -1,0 +1,325 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeautyShield | Security Dashboard</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #0f1020;
+            color: white;
+        }
+
+        header {
+            padding: 25px 8%;
+            border-bottom: 1px solid #303047;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            font-size: 25px;
+            font-weight: bold;
+            color: #d6b5ff;
+        }
+
+        .subtitle {
+            color: #a8a8bc;
+            font-size: 13px;
+        }
+
+        main {
+            max-width: 1050px;
+            margin: 50px auto;
+            padding: 0 20px;
+        }
+
+        h1 {
+            font-size: 38px;
+            margin-bottom: 10px;
+        }
+
+        .description {
+            color: #a8a8bc;
+            margin-bottom: 35px;
+        }
+
+        .card {
+            background: #1c1d32;
+            border: 1px solid #34354d;
+            border-radius: 16px;
+            padding: 25px;
+            margin-bottom: 22px;
+        }
+
+        .search {
+            display: flex;
+            gap: 12px;
+        }
+
+        input {
+            flex: 1;
+            padding: 15px;
+            border-radius: 9px;
+            border: 1px solid #55536d;
+            background: #111225;
+            color: white;
+            font-size: 15px;
+            min-width: 0;
+        }
+
+        button {
+            padding: 15px 25px;
+            background: #a86af5;
+            color: white;
+            border: none;
+            border-radius: 9px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        button:hover {
+            background: #9251e7;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .results {
+            display: none;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .stat-label {
+            color: #a8a8bc;
+            font-size: 14px;
+        }
+
+        .score {
+            font-size: 45px;
+            font-weight: bold;
+            margin: 12px 0;
+        }
+
+        .high {
+            color: #ff777e;
+        }
+
+        .medium {
+            color: #ffcb77;
+        }
+
+        .low {
+            color: #77dfb3;
+        }
+
+        .issue {
+            border-top: 1px solid #34354d;
+            padding: 18px 0;
+        }
+
+        .issue h3 {
+            margin: 0 0 8px;
+            font-size: 16px;
+        }
+
+        .issue p {
+            color: #b8b8c9;
+            margin: 6px 0;
+            line-height: 1.5;
+        }
+
+        .tag {
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        #status {
+            color: #d6b5ff;
+            margin-top: 15px;
+        }
+
+        @media (max-width: 600px) {
+            .search {
+                flex-direction: column;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            h1 {
+                font-size: 30px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <div class="logo">✦ BeautyShield</div>
+        <div class="subtitle">WEB SECURITY ANALYZER</div>
+    </header>
+
+    <main>
+        <h1>Security Dashboard</h1>
+        <p class="description">
+            Analyze website security and discover potential weaknesses.
+        </p>
+
+        <div class="card">
+            <h2>Website Analysis</h2>
+            <p class="description">
+                Enter a website URL to start a security scan.
+            </p>
+
+            <div class="search">
+                <input
+                    id="url"
+                    type="url"
+                    placeholder="https://example.com"
+                    value="https://example.com"
+                >
+
+                <button id="scanButton" onclick="scanWebsite()">
+                    Scan Website
+                </button>
+            </div>
+
+            <p id="status"></p>
+        </div>
+
+        <div class="results" id="results">
+            <div class="stats">
+                <div class="card">
+                    <div class="stat-label">Risk Score</div>
+                    <div class="score" id="score">--</div>
+                    <div id="riskLevel">--</div>
+                </div>
+
+                <div class="card">
+                    <div class="stat-label">Security Findings</div>
+                    <div class="score" id="issueCount">0</div>
+                    <div>Potential security issues</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Security Findings</h2>
+                <div id="issues"></div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        async function scanWebsite() {
+            const url = document.getElementById("url").value.trim();
+            const status = document.getElementById("status");
+            const button = document.getElementById("scanButton");
+            const results = document.getElementById("results");
+
+            if (!url) {
+                status.textContent = "Please enter a website URL.";
+                return;
+            }
+
+            button.disabled = true;
+            status.textContent = "Scanning website...";
+            results.style.display = "none";
+
+            try {
+                const response = await fetch(
+                    "http://127.0.0.1:8000/scan",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({ url: url })
+                    }
+                );
+
+                if (!response.ok) {
+                    throw new Error("Server returned " + response.status);
+                }
+
+                const data = await response.json();
+
+                document.getElementById("score").textContent =
+                    data.risk_score + "/100";
+
+                const riskLevel = document.getElementById("riskLevel");
+                riskLevel.textContent = data.risk_level;
+
+                document.getElementById("issueCount").textContent =
+                    data.issues.length;
+
+                const issuesContainer = document.getElementById("issues");
+                issuesContainer.replaceChildren();
+
+                for (const issue of data.issues) {
+                    const item = document.createElement("div");
+                    item.className = "issue";
+
+                    const heading = document.createElement("h3");
+                    heading.textContent = issue.message;
+
+                    const severity = document.createElement("div");
+                    severity.className = "tag";
+                    severity.textContent = "Severity: " + issue.severity;
+
+                    if (issue.severity === "HIGH") {
+                        severity.classList.add("high");
+                    } else if (issue.severity === "MEDIUM") {
+                        severity.classList.add("medium");
+                    } else {
+                        severity.classList.add("low");
+                    }
+
+                    const recommendation = document.createElement("p");
+                    recommendation.textContent =
+                        issue.recommendation || "No recommendation available.";
+
+                    item.appendChild(heading);
+                    item.appendChild(severity);
+                    item.appendChild(recommendation);
+
+                    issuesContainer.appendChild(item);
+                }
+
+                if (data.issues.length === 0) {
+                    issuesContainer.textContent =
+                        "No issues detected by the current checks.";
+                }
+
+                results.style.display = "block";
+                status.textContent = "Scan completed.";
+
+            } catch (error) {
+                status.textContent =
+                    "Unable to scan. Check that the API is running.";
+                console.error(error);
+
+            } finally {
+                button.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
