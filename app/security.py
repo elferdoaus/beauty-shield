@@ -4,6 +4,12 @@ import socket
 from urllib.parse import urlsplit
 
 
+ALLOWED_HOSTS = {
+    "example.com",
+    "www.example.com",
+}
+
+
 def validate_url(url):
     if not isinstance(url, str):
         return False
@@ -27,6 +33,9 @@ def validate_url(url):
             return False
 
         hostname = parsed.hostname.lower().rstrip(".")
+
+        if hostname not in ALLOWED_HOSTS:
+            return False
 
         if hostname == "localhost":
             return False
@@ -56,4 +65,3 @@ def validate_url(url):
 
     except (ValueError, OSError, UnicodeError):
         return False
-

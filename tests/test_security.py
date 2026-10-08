@@ -36,3 +36,6 @@ def test_invalid_protocol():
 
 def test_restricted_port():
     assert validate_url("http://example.com:8080") is False
+
+def test_domain_not_allowed():
+    assert validate_url("https://google.com") is False
